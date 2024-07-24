@@ -25,6 +25,7 @@ import de.exlll.configlib.Configuration;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import net.william278.husksync.command.PluginCommand;
 import net.william278.husksync.data.DataSnapshot;
 import net.william278.husksync.data.Identifier;
 import net.william278.husksync.database.Database;
@@ -69,12 +70,15 @@ public class Settings {
     @Comment("Enable development debug logging")
     private boolean debugLogging = false;
 
-    @Comment("Whether to provide modern, rich TAB suggestions for commands (if available)")
-    private boolean brigadierTabCompletion = false;
-
     @Comment({"Whether to enable the Player Analytics hook.", "Docs: https://william278.net/docs/husksync/plan-hook"})
     private boolean enablePlanHook = true;
 
+    @Comment("Whether to cancel game event packets directly when handling locked players if ProtocolLib or PacketEvents is installed")
+    private boolean cancelPackets = true;
+
+    @Comment("Add HuskSync commands to this list to prevent them from being registered (e.g. ['userdata'])")
+    @Getter(AccessLevel.NONE)
+    private List<String> disabledCommands = Lists.newArrayList();
 
     // Database settings
     @Comment("Database settings")
@@ -100,7 +104,7 @@ public class Settings {
             private String database = "HuskSync";
             private String username = "root";
             private String password = "pa55w0rd";
-            @Comment("Only change this if you have select MYSQL, MARIADB or POSTGRES")
+            @Comment("Only change this if you're using MARIADB or POSTGRES")
             private String parameters = String.join("&",
                     "?autoReconnect=true", "useSSL=false",
                     "useUnicode=true", "characterEncoding=UTF-8");
@@ -143,7 +147,7 @@ public class Settings {
         }
     }
 
-    // Redis settings
+    // 𝓡𝓮𝓭𝓲𝓼 settings
     @Comment("Redis settings")
     private RedisSettings redis = new RedisSettings();
 
@@ -182,7 +186,7 @@ public class Settings {
     }
 
     // Synchronization settings
-    @Comment("Redis settings")
+    @Comment("Data syncing settings")
     private SynchronizationSettings synchronization = new SynchronizationSettings();
 
     @Getter
@@ -252,9 +256,6 @@ public class Settings {
         @Comment("Persist maps locked in a Cartography Table to let them be viewed on any server")
         private boolean persistLockedMaps = true;
 
-        @Comment("Whether to synchronize player max health (requires health syncing to be enabled)")
-        private boolean synchronizeMaxHealth = true;
-
         @Comment("If using the DELAY sync method, how long should this server listen for Redis key data updates before "
                 + "pulling data from the database instead (i.e., if the user did not change servers).")
         private int networkLatencyMilliseconds = 500;
@@ -265,6 +266,11 @@ public class Settings {
 
         @Comment("Commands which should be blocked before a player has finished syncing (Use * to block all commands)")
         private List<String> blacklistedCommandsWhileLocked = new ArrayList<>(List.of("*"));
+
+        @Comment({"For attribute syncing, which attributes should be ignored/skipped when syncing",
+                "(e.g. ['minecraft:generic.max_health', 'minecraft:generic.attack_damage'])"})
+        @Getter(AccessLevel.NONE)
+        private List<String> ignoredAttributes = new ArrayList<>(List.of(""));
 
         @Comment("Event priorities for listeners (HIGHEST, NORMAL, LOWEST). Change if you encounter plugin conflicts")
         @Getter(AccessLevel.NONE)
@@ -278,6 +284,10 @@ public class Settings {
             return id.isCustom() || features.getOrDefault(id.getKeyValue(), id.isEnabledByDefault());
         }
 
+        public boolean isIgnoredAttribute(@NotNull String attribute) {
+            return ignoredAttributes.contains(attribute);
+        }
+
         @NotNull
         public EventListener.Priority getEventPriority(@NotNull EventListener.ListenerType type) {
             try {
@@ -287,5 +297,11 @@ public class Settings {
             }
         }
     }
+
+    public boolean isCommandDisabled(@NotNull PluginCommand command) {
+        return disabledCommands.stream().map(c -> c.startsWith("/") ? c.substring(1) : c)
+                .anyMatch(c -> c.equalsIgnoreCase(command.getName()) || command.getAliases().contains(c));
+    }
+
 
 }

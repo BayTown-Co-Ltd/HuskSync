@@ -19,7 +19,14 @@
 
 package net.william278.husksync.data;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.experimental.Accessors;
+import net.kyori.adventure.key.Key;
 import net.william278.husksync.HuskSync;
 import net.william278.husksync.user.OnlineUser;
 import org.jetbrains.annotations.NotNull;
@@ -51,8 +58,8 @@ public interface Data {
      */
     interface Items extends Data {
 
-        @NotNull
-        Stack[] getStack();
+        @Nullable
+        Stack @NotNull [] getStack();
 
         default int getSlotCount() {
             return getStack().length;
@@ -75,6 +82,10 @@ public interface Data {
          * A data container holding data for inventories and selected hotbar slot
          */
         interface Inventory extends Items {
+
+            int INVENTORY_SLOT_COUNT = 41;
+            String ITEMS_TAG = "items";
+            String HELD_ITEM_SLOT_TAG = "held_item_slot";
 
             int getHeldItemSlot();
 
@@ -105,7 +116,7 @@ public interface Data {
          * Data container holding data for ender chests
          */
         interface EnderChest extends Items {
-
+            int ENDER_CHEST_SLOT_COUNT = 27;
         }
 
     }
@@ -144,14 +155,14 @@ public interface Data {
      */
     interface Advancements extends Data {
 
+        String RECIPE_ADVANCEMENT = "minecraft:recipe";
+
         @NotNull
         List<Advancement> getCompleted();
 
         @NotNull
         default List<Advancement> getCompletedExcludingRecipes() {
-            return getCompleted().stream()
-                    .filter(advancement -> !advancement.getKey().startsWith("minecraft:recipe"))
-                    .collect(Collectors.toList());
+            return getCompleted().stream().filter(adv -> !adv.getKey().startsWith(RECIPE_ADVANCEMENT)).toList();
         }
 
         void setCompleted(@NotNull List<Advancement> completed);
@@ -283,13 +294,118 @@ public interface Data {
 
         void setHealth(double health);
 
-        double getMaxHealth();
+        /**
+         * @deprecated Use {@link Attributes#getMaxHealth()} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default double getMaxHealth() {
+            return getHealth();
+        }
 
-        void setMaxHealth(double maxHealth);
+        /**
+         * @deprecated Use {@link Attributes#setMaxHealth(double)} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default void setMaxHealth(double maxHealth) {
+        }
 
         double getHealthScale();
 
         void setHealthScale(double healthScale);
+    }
+
+    /**
+     * A data container holding player attribute data
+     */
+    interface Attributes extends Data {
+
+        Key MAX_HEALTH_KEY = Key.key("generic.max_health");
+
+        List<Attribute> getAttributes();
+
+        record Attribute(
+                @NotNull String name,
+                double baseValue,
+                @NotNull Set<Modifier> modifiers
+        ) {
+
+            public double getValue() {
+                double value = baseValue;
+                for (Modifier modifier : modifiers) {
+                    value = modifier.modify(value);
+                }
+                return value;
+            }
+
+        }
+
+        @Getter
+        @Accessors(fluent = true)
+        @AllArgsConstructor
+        @NoArgsConstructor
+        final class Modifier {
+            @Getter(AccessLevel.NONE)
+            @Nullable
+            @SerializedName("uuid")
+            private UUID uuid;
+            @SerializedName("name")
+            private String name;
+            @SerializedName("amount")
+            private double amount;
+            @SerializedName("operation")
+            private int operationType;
+            @SerializedName("equipment_slot")
+            private int equipmentSlot;
+
+            public Modifier(@NotNull String name, double amount, int operationType, int equipmentSlot) {
+                this.name = name;
+                this.amount = amount;
+                this.operationType = operationType;
+                this.equipmentSlot = equipmentSlot;
+            }
+
+            @Override
+            public boolean equals(Object obj) {
+                return obj instanceof Modifier modifier && modifier.uuid().equals(uuid());
+            }
+
+            public double modify(double value) {
+                return switch (operationType) {
+                    case 0 -> value + amount;
+                    case 1 -> value * amount;
+                    case 2 -> value * (1 + amount);
+                    default -> value;
+                };
+            }
+
+            @NotNull
+            public UUID uuid() {
+                return uuid != null ? uuid : UUID.nameUUIDFromBytes(name.getBytes());
+            }
+
+        }
+
+        default Optional<Attribute> getAttribute(@NotNull Key key) {
+            return getAttributes().stream()
+                    .filter(attribute -> attribute.name().equals(key.asString()))
+                    .findFirst();
+        }
+
+        default void removeAttribute(@NotNull Key key) {
+            getAttributes().removeIf(attribute -> attribute.name().equals(key.asString()));
+        }
+
+        default double getMaxHealth() {
+            return getAttribute(MAX_HEALTH_KEY)
+                    .map(Attribute::getValue)
+                    .orElse(20.0);
+        }
+
+        default void setMaxHealth(double maxHealth) {
+            removeAttribute(MAX_HEALTH_KEY);
+            getAttributes().add(new Attribute(MAX_HEALTH_KEY.asString(), maxHealth, Sets.newHashSet()));
+        }
+
     }
 
     /**
@@ -341,12 +457,7 @@ public interface Data {
     }
 
     /**
-     * A data container holding data for:
-     * <ul>
-     *     <li>Game mode</li>
-     *     <li>Allow flight</li>
-     *     <li>Is flying</li>
-     * </ul>
+     * Data container holding data for the player's current game mode
      */
     interface GameMode extends Data {
 
@@ -355,13 +466,65 @@ public interface Data {
 
         void setGameMode(@NotNull String gameMode);
 
-        boolean getAllowFlight();
+        /**
+         * Get if the player can fly.
+         *
+         * @return {@code false} since v3.5
+         * @deprecated Moved to its own data type. This will always return {@code false}.
+         * Use {@link FlightStatus#isAllowFlight()} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default boolean getAllowFlight() {
+            return false;
+        }
+
+        /**
+         * Set if the player can fly.
+         *
+         * @deprecated Moved to its own data type.
+         * Use {@link FlightStatus#setAllowFlight(boolean)} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default void setAllowFlight(boolean allowFlight) {
+        }
+
+        /**
+         * Get if the player is flying.
+         *
+         * @return {@code false} since v3.5
+         * @deprecated Moved to its own data type. This will always return {@code false}.
+         * Use {@link FlightStatus#isFlying()} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default boolean getIsFlying() {
+            return false;
+        }
+
+        /**
+         * Set if the player is flying.
+         *
+         * @deprecated Moved to its own data type.
+         * Use {@link FlightStatus#setFlying(boolean)} instead
+         */
+        @Deprecated(forRemoval = true, since = "3.5")
+        default void setIsFlying(boolean isFlying) {
+        }
+
+    }
+
+    /**
+     * Data container holding data for the player's flight status
+     *
+     * @since 3.5
+     */
+    interface FlightStatus extends Data {
+        boolean isAllowFlight();
 
         void setAllowFlight(boolean allowFlight);
 
-        boolean getIsFlying();
+        boolean isFlying();
 
-        void setIsFlying(boolean isFlying);
+        void setFlying(boolean isFlying);
     }
 
 
